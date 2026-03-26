@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Deprem Simülasyonu - Tam Parke Zemin</title>
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <style>
+    body { margin:0; overflow:hidden; font-family:'Segoe UI', sans-serif; }
+    #loading-screen {
+      position:fixed; top:0; left:0; width:100%; height:100%;
+      background:#121212; display:flex; flex-direction:column;
+      justify-content:center; align-items:center; color:white; z-index:9999;
+    }
+    .start-btn {
+      background:#ff4757; color:white; border:none; border-radius:30px;
+      padding:18px 45px; font-size:20px; font-weight:bold; cursor:pointer;
+    }
+    #interact-menu {
+      position: fixed; display: none; background: rgba(0,0,0,0.95);
+      border: 2px solid #f1c40f; border-radius: 10px; padding: 5px;
+      z-index: 1000; pointer-events: auto; min-width: 160px;
+    }
+    .menu-btn {
+      display: block; width: 100%; background: none; color: white;
+      border: none; padding: 12px; text-align: left; cursor: pointer;
+      font-weight: bold; border-bottom: 1px solid #333;
+    }
+    .menu-btn:hover { background: #f1c40f; color: black; }
+    #stand-up-container {
+      position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+      display: none; z-index: 1000; pointer-events: auto;
+    }
+    .stand-btn { background: #2ecc71; color: white; border: 3px solid #fff; padding: 15px 40px; font-size: 20px; font-weight: bold; cursor: pointer; border-radius: 50px; }
+    .game-ui { position:fixed; width:100%; height:100%; top:0; left:0; pointer-events:none; z-index:100; display:none; }
+    .game-ui.active { display: block; }
+    .top-bar { position:absolute; top:20px; left:20px; right:20px; display:flex; justify-content:space-between; }
+    .score-box { background:rgba(0,0,0,0.8); padding:12px 25px; border-radius:10px; color:#f1c40f; font-size:22px; border:1px solid #f1c40f; }
+    .bottom-controls { position:absolute; bottom:30px; left:50%; transform:translateX(-50%); display:flex; gap:15px; pointer-events:auto; }
+    .control-btn { border-radius:8px; padding:15px 30px; font-size:16px; font-weight:bold; cursor:pointer; color:white; border:none; }
+    
+    #danger-popup {
+        position:fixed; top:40%; left:50%; transform:translate(-50%, -50%);
+        background:rgba(255,0,0,0.9); color:white; padding:20px 40px; border-radius:10px;
+        border:5px solid white; display:none; z-index:5000; text-align:center;
+        font-weight:bold; font-size:24px; animation: blink 0.5s infinite;
+    }
+    @keyframes blink { 0% {opacity:1;} 50% {opacity:0.5;} 100% {opacity:1;} }
+    .popup-message {
+      position:fixed; top:50%; left:50%; transform:translate(-50%, -50%);
+      background:rgba(0,0,0,0.95); color:white; padding:35px; border-radius:15px;
+      border:2px solid #f1c40f; display:none; z-index:200; text-align:center; white-space: pre-line;
+    }
+  </style>
+</head>
+<body oncontextmenu="return false;">
+
+  <div id="loading-screen">
+    <h1>🏠 Gerçekçi Deprem Simülasyonu</h1>
+    <p>Zemin parke ile kaplandı. Sağ tık ile aksiyon alın.</p>
+    <button class="start-btn" onclick="startGame()">SİSTEMİ BAŞLAT</button>
+  </div>
+
+  <div id="interact-menu">
+      <button class="menu-btn" onclick="doAction('crouch')">🧎 Çök - Kapan - Tutun</button>
+      <button class="menu-btn" style="color:#ff4757; border:none;" onclick="closeMenu()">❌ İptal</button>
+  </div>
+
+  <div id="stand-up-container">
+      <button class="stand-btn" onclick="standUp()">🚶 AYAĞA KALK</button>
+  </div>
+
+  <div id="danger-popup">🚨 DİKKAT 🚨<br><span id="danger-text">TEHLİKE!</span></div>
+
+  <a-scene id="main-scene" shadow="type:pcfsoft" renderer="antialias:true; colorManagement:true;" 
+           style="display:none;" cursor="rayOrigin: mouse;" raycaster="objects: .clickable">
+    
+    <a-assets>
+      <img id="light-floor" src="https://raw.githubusercontent.com/aframevr/sample-assets/master/assets/images/wood/hardwood2_diffuse.jpg">
+      <img id="tablo-img" src="https://cdn.aframe.io/a-painter/images/floor.jpg">
+      <audio id="quake-sound" src="https://cdn.pixabay.com/audio/2022/03/10/audio_c8c8a73954.mp3" crossorigin="anonymous"></audio>
+      <audio id="glass-sound" src="https://actions.google.com/sounds/v1/foley/glass_break.ogg" crossorigin="anonymous"></audio>
+    </a-assets>
+
+    <a-entity id="audio-quake" sound="src: #quake-sound; loop: true; volume: 2"></a-entity>
+    <a-entity id="audio-glass" sound="src: #glass-sound; volume: 3"></a-entity>
+
+    <a-sky color="#74b9ff"></a-sky>
+    <a-light type="ambient" intensity="0.5"></a-light>
+    <a-light type="directional" intensity="0.8" position="5 10 5" castShadow="true"></a-light>
+
+    <a-entity id="rig" position="0 0 2">
+      <a-entity id="player-camera" camera look-controls wasd-controls="acceleration:75" position="0 1.6 0"></a-entity>
+    </a-entity>
+
+    <a-entity id="shaky-container">
+      <a-plane class="clickable" src="#light-floor" repeat="15 20" color="#f5e6d3" rotation="-90 0 0" width="30" height="40" roughness="0.9"></a-plane>
+      <a-box position="0 5 -7" width="16" height="0.2" depth="22" color="#f5f5f5" opacity="0.3"></a-box> 
+
+      <a-box position="0 2.5 4" width="16" height="5" depth="0.2" color="#f5f5f5" class="clickable"></a-box> <a-box position="0 2.5 -18" width="16" height="5" depth="0.2" color="#f5f5f5" class="clickable"></a-box> <a-box position="-8 2.5 -7" width="0.2" height="5" depth="22.2" color="#f5f5f5" class="clickable"></a-box> <a-box position="8 2.5 -7" width="0.2" height="5" depth="22.2" color="#f5f5f5" class="clickable"></a-box> <a-entity position="7.9 2.5 -10">
+          <a-box class="clickable" width="0.1" height="3" depth="6" color="#74b9ff" opacity="0.4"></a-box>
+          <a-box width="0.05" height="3.2" depth="0.2" color="red" position="0 0 -3.1"></a-box>
+          <a-box width="0.05" height="3.2" depth="0.2" color="red" position="0 0 3.1"></a-box>
+      </a-entity>
+      <a-entity position="-7.9 2.5 1">
+          <a-box class="clickable" width="0.1" height="3" depth="4" color="#74b9ff" opacity="0.4"></a-box>
+          <a-box width="0.05" height="3.2" depth="0.2" color="red" position="0 0 -2.1"></a-box>
+          <a-box width="0.05" height="3.2" depth="0.2" color="red" position="0 0 2.1"></a-box>
+      </a-entity>
+
+      <a-box id="exit-door" position="0 1.5 3.9" width="2.5" height="3" depth="0.1" color="#5d4037" class="clickable"></a-box>
+      <a-entity id="vestiyer-group" position="3.5 1.5 3.6">
+          <a-box class="clickable" width="3.6" height="3" depth="0.6" color="#ffffff" shadow="cast: true"></a-box>
+          <a-box width="3.5" height="0.1" depth="0.7" position="0 0.5 0" color="#2f3542"></a-box> 
+      </a-entity>
+
+      <a-box id="tablo" position="-7.85 2.5 -2.5" width="0.05" height="1.8" depth="2.5" src="#tablo-img" color="#ffffff" rotation="0 90 0" class="clickable">
+          <a-box width="0.02" height="1.9" depth="2.6" position="-0.02 0 0" color="#3e2723"></a-box> 
+      </a-box>
+
+      <a-entity position="0 0.25 -15.4">
+          <a-box class="clickable" width="3.2" height="0.5" depth="0.6" color="#2d3436"></a-box>
+          <a-box class="clickable" position="0 1 0" width="2.8" height="1.5" depth="0.05" color="black"></a-box>
+          <a-cylinder class="clickable" position="-2.1 0.35 0.4" radius="0.12" height="0.7" color="#d2b48c"></a-cylinder>
+          <a-sphere class="clickable" position="2.2 0.35 0.4" radius="0.3" color="#2ecc71"></a-sphere>
+      </a-entity>
+      <a-box class="clickable" id="mirror" position="5 1.5 -15.8" width="1.5" height="2.5" depth="0.1" color="#dfe6e9" metalness="0.9"></a-box>
+
+      <a-entity id="sofa-l" position="0 0 -9">
+        <a-box class="clickable" color="#f5f5dc" width="5" height="0.6" depth="1.6"></a-box>
+        <a-box class="clickable" color="#f5f5dc" position="0 0.8 0.7" width="5" height="1.6" depth="0.3"></a-box>
+        <a-box class="clickable" color="#f5f5dc" position="2 0.3 -1.5" width="1.4" height="0.6" depth="3"></a-box>
+      </a-entity>
+      <a-box class="clickable" id="coffee-table" position="0 0.2 -12" width="1.5" height="0.4" depth="1" color="#ced6e0"></a-box>
+
+      <a-entity id="dining" position="0 0 -2.5">
+        <a-box class="clickable" color="#f5f5dc" position="0 0.75 0" width="2.5" height="0.08" depth="1.5"></a-box>
+        <a-cylinder position="-1.1 0.37 0.6" radius="0.04" height="0.75" color="#f5f5dc"></a-cylinder>
+        <a-cylinder position="1.1 0.37 0.6" radius="0.04" height="0.75" color="#f5f5dc"></a-cylinder>
+        <a-box class="clickable" color="#a52a2a" position="-1.5 0.4 0" width="0.5" height="0.8" depth="0.5"></a-box>
+        <a-box class="clickable" color="#a52a2a" position="1.5 0.4 0" width="0.5" height="0.8" depth="0.5"></a-box>
+      </a-entity>
+
+      <a-box class="clickable" color="#2f3542" position="0 0.75 -5.5" width="6" height="1.5" depth="0.5"></a-box>
+
+      <a-entity id="l-kitchen-group" position="6.8 0.45 -4">
+          <a-box class="clickable" width="2" height="0.9" depth="0.8" color="#2f3542"></a-box>
+          <a-box class="clickable" position="0.5 0 1.8" width="1" height="0.9" depth="4.4" color="#2f3542"></a-box>
+          <a-box class="clickable" id="fridge" position="0.5 0.75 4.5" width="1.2" height="2.4" depth="1.1" color="#ffffff"></a-box>
+      </a-entity>
+    </a-entity>
+  </a-scene>
+
+  <div id="game-ui" class="game-ui">
+    <div class="top-bar">
+      <div class="score-box">HAYAT PUANI: <span id="score-val">50</span></div>
+      <div class="score-box" id="timer-ui">⏱️ 0s</div>
+    </div>
+    <div class="bottom-controls">
+      <button class="control-btn low" onclick="triggerEarthquake('low')">HAFİF SARSINTI</button>
+      <button class="control-btn high" onclick="triggerEarthquake('high')">ŞİDDETLİ DEPREM</button>
+    </div>
+    <div id="popup-message" class="popup-message"></div>
+  </div>
+
+  <script>
+    let lifeScore = 50, activeShaking = false, didCrouch = false, glassBroken = false;
+
+    function startGame() {
+      document.getElementById('loading-screen').style.display = 'none';
+      document.getElementById('main-scene').style.display = 'block';
+      document.getElementById('game-ui').classList.add('active');
+    }
+
+    window.addEventListener('mousedown', function(e) {
+        if (activeShaking && e.button === 2) {
+            const menu = document.getElementById('interact-menu');
+            menu.style.display = 'block';
+            menu.style.left = e.clientX + 'px';
+            menu.style.top = e.clientY + 'px';
+        }
+    });
+
+    function closeMenu() { document.getElementById('interact-menu').style.display = 'none'; }
+
+    function doAction(type) {
+        if(type === 'crouch') {
+            const cam = document.getElementById('player-camera');
+            let cp = cam.getAttribute('position');
+            cam.setAttribute('position', {x: cp.x, y: 0.6, z: cp.z});
+            cam.setAttribute('wasd-controls', 'enabled: false');
+            didCrouch = true;
+            document.getElementById('stand-up-container').style.display = 'block';
+        }
+        closeMenu();
+    }
+
+    function standUp() {
+        const cam = document.getElementById('player-camera');
+        let cp = cam.getAttribute('position');
+        cam.setAttribute('position', {x: cp.x, y: 1.6, z: cp.z});
+        cam.setAttribute('wasd-controls', 'enabled: true');
+        document.getElementById('stand-up-container').style.display = 'none';
+    }
+
+    function triggerEarthquake(sev) {
+      if (activeShaking) return;
+      activeShaking = true; didCrouch = false; glassBroken = false;
+      document.getElementById('audio-quake').components.sound.playSound();
+
+      let dur = 12, power = (sev === 'high') ? 0.45 : 0.15;
+      showPopup("🚨 DEPREM BAŞLADI!", false);
+
+      const target = document.getElementById('shaky-container');
+      let shakeTick = setInterval(() => {
+        if (!activeShaking) { clearInterval(shakeTick); target.setAttribute('position', '0 0 0'); return; }
+        target.setAttribute('position', `${(Math.random()-0.5)*power} ${(Math.random()-0.5)*(power*0.3)} ${(Math.random()-0.5)*power}`);
+        checkDangers();
+      }, 50);
+
+      let remaining = dur;
+      let clock = setInterval(() => {
+        remaining--; document.getElementById('timer-ui').textContent = `⏱️ ${remaining}s`;
+        if (remaining <= 0) { 
+            clearInterval(clock); activeShaking = false;
+            document.getElementById('audio-quake').components.sound.stopSound();
+            document.getElementById('danger-popup').style.display = 'none';
+            evaluateSafety(); 
+        }
+      }, 1000);
+    }
+
+    function checkDangers() {
+        const rig = document.querySelector('#rig');
+        const cam = document.querySelector('#player-camera');
+        const pX = rig.getAttribute('position').x + cam.getAttribute('position').x;
+        const pZ = rig.getAttribute('position').z + cam.getAttribute('position').z;
+        const popup = document.getElementById('danger-popup');
+        const pText = document.getElementById('danger-text');
+
+        let isDanger = false;
+
+        if (pZ > 2.5 && pX > 1.0) {
+            lifeScore = Math.max(0, lifeScore - 0.5);
+            pText.innerHTML = "! DİKKAT !<br>VESTİYER DEVRİLEBİLİR!";
+            isDanger = true;
+        } 
+        else if (pX < -5.5 || pX > 5.5) {
+            lifeScore = Math.max(0, lifeScore - 0.6);
+            pText.innerHTML = "! CAM PATLAMA RİSKİ !";
+            isDanger = true;
+            if (!glassBroken) { document.getElementById('audio-glass').components.sound.playSound(); glassBroken = true; }
+        }
+
+        if (isDanger) {
+            popup.style.display = 'block';
+            document.getElementById('score-val').textContent = Math.floor(lifeScore);
+        } else { popup.style.display = 'none'; }
+    }
+
+    function evaluateSafety() {
+      const cam = document.querySelector('#player-camera');
+      const rig = document.querySelector('#rig');
+      const pX = rig.getAttribute('position').x + cam.getAttribute('position').x;
+      const pZ = rig.getAttribute('position').z + cam.getAttribute('position').z;
+      const dTable = Math.sqrt(Math.pow(pX - 0, 2) + Math.pow(pZ - (-2.5), 2));
+
+      let delta = 0, txt = "";
+      if (pZ > 2.5) {
+          delta = -40; txt = "❌ Tehlikeli bölge! Vestiyer yanında yakalandınız.";
+      } else if (dTable < 3.0) {
+          delta = didCrouch ? 50 : 20;
+          txt = "✅ Harika! Masanın altında güvendesiniz.";
+      } else { delta = -25; txt = "⚠️ Açıkta kaldınız."; }
+
+      lifeScore = Math.max(0, Math.min(100, lifeScore + delta));
+      document.getElementById('score-val').textContent = Math.floor(lifeScore);
+      showPopup(`Final Skor: ${Math.floor(lifeScore)}\n${txt}`, true);
+    }
+
+    function showPopup(m, isFinal) {
+      const el = document.getElementById('popup-message');
+      el.innerText = m; el.style.display = 'block';
+      if (!isFinal) setTimeout(() => { el.style.display = 'none'; }, 1500);
+    }
+  </script>
+</body>
+</html>
